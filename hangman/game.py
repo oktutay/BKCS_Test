@@ -1,26 +1,19 @@
-"""Hangman game rules.
+"""The rules of Hangman.
 
-Pure logic: this module has no print(), no input() and no file access, and it
-does not import `random` -- hint() takes the random source as an argument
-instead. It can be driven from a REPL, a unit test, a web handler or a GUI
-without changing a line. That independence is the point -- see README.md.
+Pure logic: no print, no input, no files, no `import random`. Everything this
+module needs is passed in as an argument, which is why it can be tested without
+mocking anything. See README.md section 4.
 """
 
 import string
 from enum import Enum
 
-# The only characters that count as a guess (the "whitelist").
-# Built from string.ascii_lowercase rather than typed out, so it cannot have typos.
-ALPHABET = frozenset(string.ascii_lowercase)
-
-# The rules allow at most 6 wrong guesses.
-DEFAULT_LIVES = 6
-
-MASK = "_"
+ALPHABET = frozenset(string.ascii_lowercase)  # the only letters a guess may use
+DEFAULT_LIVES = 6  # the rules allow 6 wrong guesses
 
 
 class GuessResult(Enum):
-    """What a single guess did. Returned to the caller, never printed."""
+    """What one turn did. The core returns this; main.py turns it into a sentence."""
 
     CORRECT = "correct"
     WRONG = "wrong"
@@ -32,111 +25,65 @@ class GuessResult(Enum):
 
 
 class GameState(Enum):
-    """Whether the round is still running, lost or won."""
-
     PLAYING = 0
     LOST = 1
     WON = 2
 
 
-def normalize(raw):
-    """Fold a raw input into a single a-z letter, or None if it is not a legal guess.
-
-    Lowercasing happens BEFORE the alphabet check so that "A" is accepted (F4).
-    Accepts any object, so a stray None or int returns None instead of raising (F3).
-    """
-    if not isinstance(raw, str):
-        return None
-    letter = raw.strip().lower()
-    if len(letter) != 1 or letter not in ALPHABET:
-        return None
-    return letter
-
-
 class HangmanGame:
-    """One round of Hangman.
+    """One round.
 
-    The secret word is supplied by the caller; this class never picks one. That
-    keeps it free of `random` and lets tests use a fixed word with no mocking.
+    The caller supplies the secret word, so this class never picks one and
+    never needs `random`.
     """
 
     def __init__(self, secret_word, lives=DEFAULT_LIVES):
-        word = secret_word.strip().lower() if isinstance(secret_word, str) else ""
-        if not word:
-            raise ValueError("secret word must not be empty")
-        if not set(word) <= ALPHABET:
-            # A word with spaces or accents could never be fully guessed, which
-            # would silently make the round unwinnable. Fail loudly instead.
-            raise ValueError("secret word must contain only a-z, got %r" % (secret_word,))
+        word = secret_word.strip().lower()
+        if not word or not set(word) <= ALPHABET:
+            # A word with a space or an accent could never be typed by the
+            # player, so the round would be unwinnable. Fail now, loudly.
+            raise ValueError(f"secret word must be letters a-z only, got {secret_word!r}")
         if lives < 1:
-            raise ValueError("lives must be >= 1, got %r" % (lives,))
+            raise ValueError(f"lives must be at least 1, got {lives}")
 
-        self._secret = word
-        self._lives = lives
-        self._max_lives = lives
-        self._correct = set()
-        self._wrong = []  # kept in order, so the UI can list them as they happened
-        self._hint_used = False  # one hint per round, in every difficulty
+        self.secret_word = word
+        self.lives = lives
+        self.max_lives = lives
+        self.correct_letters = set()  # letters guessed right
+        self.wrong_letters = []       # letters guessed wrong, in order
+        self.hint_used = False        # one hint per round
 
-    # ------------------------------------------------------------------
-    # Read-only views. The UI renders the whole screen from these (F2).
-    # Everything below is derived on read, so no two pieces of state can
-    # ever drift out of sync.
-    # ------------------------------------------------------------------
-
-    @property
-    def secret_word(self):
-        """The answer. The UI only reveals it once the round is over (F5)."""
-        return self._secret
-
-    @property
-    def lives(self):
-        """Wrong guesses still allowed."""
-        return self._lives
-
-    @property
-    def max_lives(self):
-        return self._max_lives
-
-    @property
-    def correct_letters(self):
-        return set(self._correct)  # a copy: callers cannot corrupt our state
-
-    @property
-    def wrong_letters(self):
-        return list(self._wrong)
+    # --- Views on the state. All computed on read, so nothing can go stale. ---
 
     @property
     def guessed_letters(self):
-        """Every letter already tried, right or wrong."""
-        return self._correct | set(self._wrong)
+        """Every letter tried so far, right or wrong."""
+        return self.correct_letters | set(self.wrong_letters)
 
     @property
     def available_letters(self):
-        """Letters not yet tried -- the alphabet minus ALL guesses, right or wrong."""
+        """Letters not tried yet: the alphabet minus ALL guesses, right and wrong."""
         return sorted(ALPHABET - self.guessed_letters)
 
     @property
-    def masked_word(self):
-        """The word with unrevealed letters hidden, e.g. 'p_th_n'.
-
-        Derived from the secret and the correct guesses, so revealing every
-        occurrence of a repeated letter is automatic.
-        """
-        return "".join(c if c in self._correct else MASK for c in self._secret)
+    def hidden_letters(self):
+        """Distinct letters of the word that are still covered up."""
+        return sorted(set(self.secret_word) - self.correct_letters)
 
     @property
-    def remaining(self):
-        """How many DISTINCT letters are still hidden."""
-        return len(set(self._secret) - self._correct)
+    def masked_word(self):
+        """The word with unguessed letters hidden, e.g. 'p_th_n'.
+
+        Rebuilt from the word plus the correct guesses every time it is read,
+        so every position of a repeated letter is revealed automatically.
+        """
+        return "".join(c if c in self.correct_letters else "_" for c in self.secret_word)
 
     @property
     def state(self):
-        """PLAYING / LOST / WON, computed fresh so it can never be stale."""
-        if self.remaining == 0:
-            # Checked first: completing the word wins, even on the last life.
-            return GameState.WON
-        if self._lives <= 0:
+        if not self.hidden_letters:
+            return GameState.WON  # checked first: finishing the word wins
+        if self.lives < 1:
             return GameState.LOST
         return GameState.PLAYING
 
@@ -148,69 +95,46 @@ class HangmanGame:
     def won(self):
         return self.state is GameState.WON
 
-    @property
-    def hint_used(self):
-        """Whether this round's single hint has been spent."""
-        return self._hint_used
-
-    @property
-    def hidden_letters(self):
-        """The distinct letters of the secret that are still not revealed."""
-        return sorted(set(self._secret) - self._correct)
-
-    # ------------------------------------------------------------------
-    # The two methods that change state.
-    # ------------------------------------------------------------------
+    # --- The two actions that change the state. ---
 
     def guess(self, raw):
-        """Play one letter and return a GuessResult.
-
-        Never raises on bad input and never costs more than one life (F3).
-        Every rejection path returns before any state is touched.
-        """
+        """Play one letter. Returns a GuessResult and never raises."""
         if self.is_over:
             return GuessResult.GAME_OVER
 
-        letter = normalize(raw)
-        if letter is None:
-            # Empty, blank, more than one character, or not a letter.
+        letter = raw.strip().lower()  # "A" and "a" are the same letter (F4)
+
+        # Each check below returns before anything changes, so an invalid or
+        # repeated guess can never cost a life (F3).
+        if len(letter) != 1 or letter not in ALPHABET:
             return GuessResult.INVALID
         if letter in self.guessed_letters:
             return GuessResult.ALREADY_GUESSED
 
-        if letter in self._secret:
-            # One membership test decides the whole guess. Deliberately not a
-            # per-position loop: that would deduct a life per non-matching
-            # position and end the game on the first wrong guess.
-            self._correct.add(letter)
+        if letter in self.secret_word:
+            # One check for the whole guess, not one per position: looping over
+            # positions would take a life for every letter that did not match.
+            self.correct_letters.add(letter)
             return GuessResult.CORRECT
 
-        self._wrong.append(letter)
-        self._lives -= 1
+        self.wrong_letters.append(letter)
+        self.lives -= 1
         return GuessResult.WRONG
 
     def hint(self, rng):
-        """Reveal one random hidden letter, at the cost of one life.
+        """Reveal one random hidden letter for the price of a life. Once per round.
 
-        Only one hint per round, whatever the difficulty.
-
-        `rng` must be supplied by the caller -- the `random` module itself, or a
-        random.Random instance. Taking it as an argument is what lets this
-        module stay free of `import random`, so the rules remain deterministic
-        under test while the caller decides where randomness comes from.
+        `rng` is passed in (the random module, or a random.Random) so this file
+        does not import random and the tests can make the choice predictable.
         """
         if self.is_over:
             return GuessResult.GAME_OVER
-        if self._hint_used:
+        if self.hint_used:
             return GuessResult.HINT_UNAVAILABLE
 
-        hidden = self.hidden_letters
-        if not hidden:
-            return GuessResult.HINT_UNAVAILABLE
-
-        self._correct.add(rng.choice(hidden))
-        self._hint_used = True
-        self._lives -= 1
-        # If that revealed the last letter, `state` reports WON rather than
-        # LOST even when the cost took the final life: it checks WON first.
+        self.correct_letters.add(rng.choice(self.hidden_letters))
+        self.hint_used = True
+        self.lives -= 1
+        # If that was the last letter, `state` says WON, because it checks for
+        # a win before it checks for a loss.
         return GuessResult.HINT

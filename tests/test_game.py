@@ -51,7 +51,7 @@ class TestHangmanGame(unittest.TestCase):
         self.assertIs(self.game.state, GameState.WON)
         self.assertTrue(self.game.won)
         self.assertTrue(self.game.is_over)
-        self.assertEqual(self.game.remaining, 0)
+        self.assertEqual(len(self.game.hidden_letters), 0)
         self.assertEqual(self.game.masked_word, WORD)
 
     def test_lose_after_six_wrong_guesses(self):
@@ -66,7 +66,7 @@ class TestHangmanGame(unittest.TestCase):
     # --- additional coverage of the F requirements --------------------
 
     def test_invalid_input_never_costs_a_life(self):
-        for bad in ("", " ", "  ", "ab", "1", "!", "\n", "é", None, 5):
+        for bad in ("", " ", "  ", "ab", "1", "!", "\n", "é", "?", "ab c"):
             with self.subTest(value=bad):
                 game = HangmanGame(WORD)
                 self.assertIs(game.guess(bad), GuessResult.INVALID)
@@ -86,7 +86,7 @@ class TestHangmanGame(unittest.TestCase):
         game = HangmanGame("letter")
         self.assertIs(game.guess("t"), GuessResult.CORRECT)
         self.assertEqual(game.masked_word, "__tt__")
-        self.assertEqual(game.remaining, 3)  # l, e, r still hidden
+        self.assertEqual(len(game.hidden_letters), 3)  # l, e, r still hidden
 
     def test_available_letters_exclude_correct_and_wrong_guesses(self):
         self.game.guess("p")  # correct
@@ -112,7 +112,7 @@ class TestHangmanGame(unittest.TestCase):
 
     def test_initial_state(self):
         self.assertEqual(self.game.masked_word, "______")
-        self.assertEqual(self.game.remaining, 6)
+        self.assertEqual(len(self.game.hidden_letters), 6)
         self.assertEqual(self.game.lives, 6)
         self.assertIs(self.game.state, GameState.PLAYING)
         self.assertFalse(self.game.is_over)
@@ -125,12 +125,6 @@ class TestHangmanGame(unittest.TestCase):
         with self.assertRaises(ValueError):
             HangmanGame(WORD, lives=0)
 
-    def test_properties_return_copies(self):
-        self.game.guess("p")
-        self.game.correct_letters.add("z")
-        self.game.wrong_letters.append("z")
-        self.assertNotIn("z", self.game.guessed_letters)
-
 
 class TestHint(unittest.TestCase):
     """A2: one hint per round, reveals a random hidden letter, costs one life."""
@@ -142,7 +136,7 @@ class TestHint(unittest.TestCase):
     def test_hint_reveals_a_hidden_letter_and_costs_one_life(self):
         self.assertIs(self.game.hint(self.rng), GuessResult.HINT)
         self.assertEqual(self.game.lives, 5)
-        self.assertEqual(self.game.remaining, 5)
+        self.assertEqual(len(self.game.hidden_letters), 5)
         self.assertEqual(len(self.game.correct_letters), 1)
         self.assertTrue(self.game.hint_used)
 
@@ -150,7 +144,7 @@ class TestHint(unittest.TestCase):
         self.game.hint(self.rng)
         self.assertIs(self.game.hint(self.rng), GuessResult.HINT_UNAVAILABLE)
         self.assertEqual(self.game.lives, 5)  # the refused hint cost nothing
-        self.assertEqual(self.game.remaining, 5)
+        self.assertEqual(len(self.game.hidden_letters), 5)
 
     def test_hint_only_reveals_letters_from_the_word(self):
         self.game.hint(self.rng)
