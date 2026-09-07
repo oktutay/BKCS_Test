@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Assignment brief (company document - not published by default)
+*.pdf
