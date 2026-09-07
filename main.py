@@ -1,56 +1,47 @@
 """Console interface for the Hangman game.
 
 This is the ONLY module in the project that calls print() or input(). It holds
-no game rules: it reads a raw string, hands it to game.guess(), and renders
+no game rules: it reads a raw string, hands it to the game, and renders
 whatever comes back.
 """
 
-import sys
+import random
 
 from hangman.game import GuessResult, HangmanGame
 from hangman.words import DIFFICULTIES, MODES, WordDataError, random_word, topics
 
-# The Windows console defaults to a codepage that cannot encode Vietnamese, so
-# printing "Chúc mừng" would raise UnicodeEncodeError and look like a crash.
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+HINT_COMMAND = "?"
 
 MESSAGES = {
-    GuessResult.CORRECT: "Chính xác!",
-    GuessResult.WRONG: "Sai rồi, bạn mất 1 lượt.",
-    GuessResult.ALREADY_GUESSED: "Bạn đã đoán chữ này rồi, hãy thử chữ khác.",
-    GuessResult.INVALID: "Không phù hợp — hãy nhập đúng 1 chữ cái (a-z).",
-    GuessResult.GAME_OVER: "Ván đấu đã kết thúc.",
-}
-
-# Display names for the topics in data/words.json. A topic with no entry here
-# still works -- it just shows its raw key -- so adding a topic stays a
-# data-only change.
-TOPIC_LABELS = {
-    "animal": "Động vật",
-    "food": "Đồ ăn",
+    GuessResult.CORRECT: "Correct!",
+    GuessResult.WRONG: "Wrong, you lose one life.",
+    GuessResult.ALREADY_GUESSED: "You already tried that letter, pick another.",
+    GuessResult.INVALID: "Invalid input: type exactly one letter (a-z).",
+    GuessResult.GAME_OVER: "This round is already over.",
+    GuessResult.HINT: "Hint used: one letter revealed, and it cost you one life.",
+    GuessResult.HINT_UNAVAILABLE: "You have already used your hint this round.",
 }
 
 
 def render_status(game):
     """Build the per-turn status screen (F2). Returns a string, does not print."""
-    guessed = ", ".join(sorted(game.guessed_letters)) or "(chưa có)"
-    wrong = ", ".join(game.wrong_letters) or "(chưa có)"
+    hint = "used" if game.hint_used else "available (type '?')"
     return "\n".join(
         [
             "",
-            "Từ cần đoán  : %s" % " ".join(game.masked_word),
-            "Đã đoán      : %s" % guessed,
-            "Đoán sai     : %s" % wrong,
-            "Lượt còn lại : %d/%d" % (game.lives, game.max_lives),
+            "Word     : %s" % " ".join(game.masked_word),
+            "Guessed  : %s" % (", ".join(sorted(game.guessed_letters)) or "(none)"),
+            "Wrong    : %s" % (", ".join(game.wrong_letters) or "(none)"),
+            "Lives    : %d/%d" % (game.lives, game.max_lives),
+            "Hint     : %s" % hint,
         ]
     )
 
 
 def render_ending(game):
     """Build the end-of-round screen: result plus the secret word (F5)."""
-    banner = "CHÚC MỪNG, BẠN ĐÃ THẮNG!" if game.won else "RẤT TIẾC, BẠN ĐÃ THUA."
-    return "\n%s\nTừ bí mật là: %s" % (banner, game.secret_word.upper())
+    banner = "YOU WIN!" if game.won else "YOU LOSE."
+    return "\n%s\nThe word was: %s" % (banner, game.secret_word.upper())
 
 
 def read_line(prompt):
@@ -58,7 +49,7 @@ def read_line(prompt):
     try:
         return input(prompt)
     except (EOFError, KeyboardInterrupt):
-        print("\nTạm biệt!")
+        print("\nGoodbye!")
         raise SystemExit(0)
 
 
@@ -66,7 +57,11 @@ def play_round(game):
     """Run one full round to its end."""
     while not game.is_over:
         print(render_status(game))
-        result = game.guess(read_line("Nhập 1 chữ cái: "))
+        answer = read_line("Your letter (or '?' for a hint): ")
+        if answer.strip() == HINT_COMMAND:
+            result = game.hint(random)
+        else:
+            result = game.guess(answer)
         print(MESSAGES[result])
     print(render_status(game))
     print(render_ending(game))
@@ -75,12 +70,12 @@ def play_round(game):
 def ask_play_again():
     """F5: ask whether to start another round."""
     while True:
-        answer = read_line("\nBạn có muốn chơi lại không? (c/k): ").strip().lower()
-        if answer in ("c", "co", "y", "yes"):
+        answer = read_line("\nPlay again? (y/n): ").strip().lower()
+        if answer in ("y", "yes"):
             return True
-        if answer in ("k", "khong", "n", "no"):
+        if answer in ("n", "no"):
             return False
-        print("Vui lòng nhập 'c' (có) hoặc 'k' (không).")
+        print("Please answer 'y' or 'n'.")
 
 
 def choose_number(prompt, options):
@@ -89,57 +84,60 @@ def choose_number(prompt, options):
         answer = read_line(prompt).strip()
         if answer.isdigit() and int(answer) in options:
             return options[int(answer)]
-        print("Vui lòng nhập một số trong danh sách.")
+        print("Please enter one of the numbers listed above.")
 
 
 def choose_difficulty():
     """A1: pick a difficulty. Returns its key, e.g. 'medium'."""
-    print("\nChọn độ khó:")
+    print("\nChoose a difficulty:")
     for mode, key in sorted(MODES.items()):
         level = DIFFICULTIES[key]
         if level.max_length >= 99:  # open-ended top bucket
-            length = "từ %d chữ cái trở lên" % level.min_length
+            length = "%d letters or more" % level.min_length
         else:
-            length = "%d-%d chữ cái" % (level.min_length, level.max_length)
-        print("  %d. %-12s (%s)" % (mode, level.label, length))
-    return choose_number("Lựa chọn của bạn: ", dict(MODES))
+            length = "%d-%d letters" % (level.min_length, level.max_length)
+        print("  %d. %-8s (%s)" % (mode, level.label, length))
+    return choose_number("Your choice: ", dict(MODES))
 
 
 def choose_topic():
     """A3: pick a topic, or all of them. Returns a topic name or None for all."""
-    names = topics()
-    options = {i: name for i, name in enumerate(names, start=1)}
-    options[len(options) + 1] = None  # "all topics"
+    options = {i: name for i, name in enumerate(topics(), start=1)}
+    options[len(options) + 1] = None  # the "all topics" entry
 
-    print("\nChọn chủ đề:")
+    print("\nChoose a topic:")
     for number, name in sorted(options.items()):
-        label = "Tất cả" if name is None else TOPIC_LABELS.get(name, name)
-        print("  %d. %s" % (number, label))
-    return choose_number("Lựa chọn của bạn: ", options)
+        # Topic names come straight from the data file, so adding a topic there
+        # needs no change here.
+        print("  %d. %s" % (number, "All topics" if name is None else name.capitalize()))
+    return choose_number("Your choice: ", options)
 
 
 def main():
-    print("=== TRÒ CHƠI ĐOÁN CHỮ (HANGMAN) ===")
-    print("Đoán từng chữ cái cho tới khi ra từ bí mật.")
+    print("=== HANGMAN ===")
+    print("Guess the word one letter at a time. You may miss 6 times.")
     while True:
         try:
             topic = choose_topic()
             difficulty = choose_difficulty()
             secret = random_word(topic=topic, difficulty=difficulty)
         except WordDataError as exc:
-            print("Lỗi dữ liệu từ vựng: %s" % exc)
+            print("Word data error: %s" % exc)
             return 1
 
-        # Every difficulty keeps the 6 wrong guesses from the rules; only the
-        # word length changes.
-        level = DIFFICULTIES[difficulty]
-        label = "Tất cả" if topic is None else TOPIC_LABELS.get(topic, topic)
-        print("\nChủ đề: %s | Độ khó: %s" % (label, level.label))
+        # Difficulty only changes the word length; every mode keeps 6 lives.
+        print(
+            "\nTopic: %s | Difficulty: %s"
+            % (
+                "All topics" if topic is None else topic.capitalize(),
+                DIFFICULTIES[difficulty].label,
+            )
+        )
         play_round(HangmanGame(secret))
 
         if not ask_play_again():
             break
-    print("Cảm ơn bạn đã chơi!")
+    print("Thanks for playing!")
     return 0
 
 

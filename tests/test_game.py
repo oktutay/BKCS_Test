@@ -1,10 +1,13 @@
 """Unit tests for the game rules.
 
-Every test builds HangmanGame with a fixed word, so there is no randomness, no
-file access and no stdout capture anywhere in this file. That is only possible
-because the logic is fully separated from the interface.
+Every test builds HangmanGame with a fixed word, so there is no file access and
+no stdout capture anywhere in this file. The only randomness is the seeded
+Random(0) handed to hint(), which the core takes as an argument precisely so
+the tests can pin it down. That is all possible because the logic is fully
+separated from the interface.
 """
 
+import random
 import unittest
 
 from hangman.game import GameState, GuessResult, HangmanGame
@@ -115,7 +118,7 @@ class TestHangmanGame(unittest.TestCase):
         self.assertFalse(self.game.is_over)
 
     def test_invalid_secret_word_is_rejected(self):
-        for bad in ("", "   ", "hai tu", "café", "co-ca"):
+        for bad in ("", "   ", "two words", "café", "co-ca"):
             with self.subTest(value=bad):
                 with self.assertRaises(ValueError):
                     HangmanGame(bad)
@@ -127,6 +130,67 @@ class TestHangmanGame(unittest.TestCase):
         self.game.correct_letters.add("z")
         self.game.wrong_letters.append("z")
         self.assertNotIn("z", self.game.guessed_letters)
+
+
+class TestHint(unittest.TestCase):
+    """A2: one hint per round, reveals a random hidden letter, costs one life."""
+
+    def setUp(self):
+        self.game = HangmanGame(WORD)
+        self.rng = random.Random(0)  # seeded, so these tests are deterministic
+
+    def test_hint_reveals_a_hidden_letter_and_costs_one_life(self):
+        self.assertIs(self.game.hint(self.rng), GuessResult.HINT)
+        self.assertEqual(self.game.lives, 5)
+        self.assertEqual(self.game.remaining, 5)
+        self.assertEqual(len(self.game.correct_letters), 1)
+        self.assertTrue(self.game.hint_used)
+
+    def test_only_one_hint_per_round(self):
+        self.game.hint(self.rng)
+        self.assertIs(self.game.hint(self.rng), GuessResult.HINT_UNAVAILABLE)
+        self.assertEqual(self.game.lives, 5)  # the refused hint cost nothing
+        self.assertEqual(self.game.remaining, 5)
+
+    def test_hint_only_reveals_letters_from_the_word(self):
+        self.game.hint(self.rng)
+        revealed = self.game.correct_letters
+        self.assertTrue(revealed <= set(WORD))
+
+    def test_hinted_letter_counts_as_already_guessed(self):
+        self.game.hint(self.rng)
+        letter = next(iter(self.game.correct_letters))
+        self.assertIs(self.game.guess(letter), GuessResult.ALREADY_GUESSED)
+        self.assertNotIn(letter, self.game.available_letters)
+
+    def test_hint_never_repeats_an_already_revealed_letter(self):
+        self.game.guess("p")
+        self.game.hint(self.rng)
+        self.assertEqual(len(self.game.correct_letters), 2)
+
+    def test_hint_completing_the_word_on_the_last_life_is_a_win(self):
+        game = HangmanGame("cat", lives=1)
+        game.guess("c")
+        game.guess("a")
+        self.assertIs(game.hint(self.rng), GuessResult.HINT)
+        self.assertEqual(game.lives, 0)
+        self.assertIs(game.state, GameState.WON)  # not LOST: WON is checked first
+
+    def test_hint_that_spends_the_last_life_without_winning_loses(self):
+        game = HangmanGame(WORD, lives=1)
+        self.assertIs(game.hint(self.rng), GuessResult.HINT)
+        self.assertIs(game.state, GameState.LOST)
+
+    def test_hint_after_game_over_is_inert(self):
+        for letter in "qwrszx":
+            self.game.guess(letter)
+        self.assertIs(self.game.hint(self.rng), GuessResult.GAME_OVER)
+        self.assertFalse(self.game.hint_used)
+
+    def test_hidden_letters_shrink_as_the_word_is_revealed(self):
+        self.assertEqual(self.game.hidden_letters, sorted(set(WORD)))
+        self.game.guess("p")
+        self.assertNotIn("p", self.game.hidden_letters)
 
 
 if __name__ == "__main__":

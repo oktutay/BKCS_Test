@@ -24,9 +24,9 @@ _ALPHABET = frozenset(string.ascii_lowercase)
 Difficulty = namedtuple("Difficulty", "key label min_length max_length")
 
 DIFFICULTIES = {
-    "easy": Difficulty("easy", "Dễ", 3, 5),
-    "medium": Difficulty("medium", "Trung bình", 6, 8),
-    "hard": Difficulty("hard", "Khó", 9, 99),
+    "easy": Difficulty("easy", "Easy", 3, 5),
+    "medium": Difficulty("medium", "Medium", 6, 8),
+    "hard": Difficulty("hard", "Hard", 9, 99),
 }
 
 # The 1/2/3 the player types at the menu.
@@ -55,12 +55,12 @@ def load_words(path=DATA_FILE):
         with open(path, encoding="utf-8") as f:  # explicit utf-8: Windows defaults to ANSI
             raw = json.load(f)
     except FileNotFoundError:
-        raise WordDataError("khong tim thay file tu vung: %s" % (path,))
+        raise WordDataError("word file not found: %s" % (path,))
     except json.JSONDecodeError as exc:
-        raise WordDataError("file tu vung khong hop le: %s" % (exc,))
+        raise WordDataError("word file is not valid JSON: %s" % (exc,))
 
     if not isinstance(raw, dict):
-        raise WordDataError("file tu vung phai la mot doi tuong JSON {chu_de: [tu, ...]}")
+        raise WordDataError("word file must be a JSON object of {topic: [word, ...]}")
 
     topics = {}
     for topic, words in raw.items():
@@ -68,7 +68,7 @@ def load_words(path=DATA_FILE):
         if cleaned:
             topics[topic] = cleaned
     if not topics:
-        raise WordDataError("file tu vung khong co tu nao dung duoc")
+        raise WordDataError("word file contains no usable word")
     return topics
 
 
@@ -93,12 +93,12 @@ def words_for(topic=None, difficulty=None, path=DATA_FILE):
     else:
         loaded = load_words(path)
         if topic not in loaded:
-            raise WordDataError("khong co chu de %r" % (topic,))
+            raise WordDataError("unknown topic %r" % (topic,))
         pool = loaded[topic]
 
     if difficulty is not None:
         if difficulty not in DIFFICULTIES:
-            raise WordDataError("khong co do kho %r" % (difficulty,))
+            raise WordDataError("unknown difficulty %r" % (difficulty,))
         level = DIFFICULTIES[difficulty]
         pool = [w for w in pool if level.min_length <= len(w) <= level.max_length]
     return pool
@@ -114,6 +114,6 @@ def random_word(topic=None, difficulty=None, path=DATA_FILE, rng=random):
     if not words:
         # Raise instead of letting random.choice([]) throw an opaque IndexError.
         raise WordDataError(
-            "khong co tu nao cho chu de=%r do kho=%r" % (topic, difficulty)
+            "no word for topic=%r difficulty=%r" % (topic, difficulty)
         )
     return rng.choice(words)

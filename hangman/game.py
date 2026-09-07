@@ -1,7 +1,8 @@
 """Hangman game rules.
 
-Pure logic: this module has no print(), no input(), no file access and no
-randomness. It can be driven from a REPL, a unit test, a web handler or a GUI
+Pure logic: this module has no print(), no input() and no file access, and it
+does not import `random` -- hint() takes the random source as an argument
+instead. It can be driven from a REPL, a unit test, a web handler or a GUI
 without changing a line. That independence is the point -- see README.md.
 """
 
@@ -26,6 +27,8 @@ class GuessResult(Enum):
     ALREADY_GUESSED = "already_guessed"
     INVALID = "invalid"
     GAME_OVER = "game_over"
+    HINT = "hint"
+    HINT_UNAVAILABLE = "hint_unavailable"
 
 
 class GameState(Enum):
@@ -72,7 +75,8 @@ class HangmanGame:
         self._lives = lives
         self._max_lives = lives
         self._correct = set()
-        self._wrong = []  # kept in order, for the "đã đoán sai" display
+        self._wrong = []  # kept in order, so the UI can list them as they happened
+        self._hint_used = False  # one hint per round, in every difficulty
 
     # ------------------------------------------------------------------
     # Read-only views. The UI renders the whole screen from these (F2).
@@ -144,8 +148,18 @@ class HangmanGame:
     def won(self):
         return self.state is GameState.WON
 
+    @property
+    def hint_used(self):
+        """Whether this round's single hint has been spent."""
+        return self._hint_used
+
+    @property
+    def hidden_letters(self):
+        """The distinct letters of the secret that are still not revealed."""
+        return sorted(set(self._secret) - self._correct)
+
     # ------------------------------------------------------------------
-    # The only method that changes state.
+    # The two methods that change state.
     # ------------------------------------------------------------------
 
     def guess(self, raw):
@@ -174,3 +188,29 @@ class HangmanGame:
         self._wrong.append(letter)
         self._lives -= 1
         return GuessResult.WRONG
+
+    def hint(self, rng):
+        """Reveal one random hidden letter, at the cost of one life.
+
+        Only one hint per round, whatever the difficulty.
+
+        `rng` must be supplied by the caller -- the `random` module itself, or a
+        random.Random instance. Taking it as an argument is what lets this
+        module stay free of `import random`, so the rules remain deterministic
+        under test while the caller decides where randomness comes from.
+        """
+        if self.is_over:
+            return GuessResult.GAME_OVER
+        if self._hint_used:
+            return GuessResult.HINT_UNAVAILABLE
+
+        hidden = self.hidden_letters
+        if not hidden:
+            return GuessResult.HINT_UNAVAILABLE
+
+        self._correct.add(rng.choice(hidden))
+        self._hint_used = True
+        self._lives -= 1
+        # If that revealed the last letter, `state` reports WON rather than
+        # LOST even when the cost took the final life: it checks WON first.
+        return GuessResult.HINT
