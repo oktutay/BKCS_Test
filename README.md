@@ -14,8 +14,12 @@ Requires **Python 3.7+** (tested on 3.11.8, Windows 10). No dependencies.
 
 ```bash
 cd BKCS_Test
-python main.py
+python gui.py     # click-based window (A6)
+python main.py    # or the console version
 ```
+
+Both interfaces use the same `hangman/game.py`. Nothing in the rules changed to
+make the window exist.
 
 ## 2. Run the tests
 
@@ -26,29 +30,37 @@ python -m unittest discover -s tests -t . -v
 > `-t .` is required. It makes the project root the top-level directory; without it `unittest`
 > treats `tests/` as the root and `import hangman` inside the tests fails.
 
-**36 tests**, against the required minimum of 5. Result: `Ran 36 tests — OK`.
+**46 tests**, against the required minimum of 5. Result: `Ran 46 tests — OK`.
 
 ## 3. Project layout
 
 ```
 BKCS_Test/
-├── main.py                 # INTERFACE — the only file that calls print() / input()
+├── gui.py                  # INTERFACE 1 — click-based window (tkinter)
+├── main.py                 # INTERFACE 2 — console, the only file using print/input
+├── messages.py             # the sentence for each outcome, shared by both interfaces
 ├── data/
-│   └── words.json          # 90 words in 2 topics (animal / food)
+│   ├── words.json          # 90 words in 2 topics (animal / food)
+│   └── scores.csv          # score history, created on the first finished round
 ├── hangman/
 │   ├── game.py             # RULES — no print/input, no file access, no `import random`
-│   └── words.py            # reads the word file, filters it, picks a word
+│   ├── words.py            # reads the word file, filters it, picks a word
+│   └── scores.py           # scoring, and reading/writing scores.csv
 └── tests/
     ├── test_game.py        # 23 tests for the rules
-    └── test_words.py       # 13 tests for the word data, topics and difficulty
+    ├── test_words.py       # 13 tests for the word data, topics and difficulty
+    └── test_scores.py      # 10 tests for scoring and the CSV
 ```
 
-Three files, one job each. `game.py` imports nothing from this project, so the arrows only
-ever point one way:
+`game.py` imports nothing from this project, so the arrows only ever point one way — and
+**two different interfaces sit on top of the same rules**:
 
 ```
-main.py  →  hangman/words.py  →  data/words.json
-        ↘   hangman/game.py
+gui.py  ─┐
+         ├─→  hangman/game.py        (the rules; imports only enum + string)
+main.py ─┘
+         ├─→  hangman/words.py   →  data/words.json
+         └─→  hangman/scores.py  →  data/scores.csv
 ```
 
 ## 4. How it works, step by step
@@ -110,6 +122,23 @@ return GameState.PLAYING
 ```
 
 Win is checked **before** loss, so finishing the word on your last life is a win.
+
+### The same steps in the window
+
+`gui.py` runs the identical pipeline; only the input and output change:
+
+| Step | Console (`main.py`) | Window (`gui.py`) |
+|---|---|---|
+| 1-2. Pick topic and difficulty | numbered menus | two drop-downs, then "New game" |
+| 3-4. Get a word, start a round | `random_word()` -> `HangmanGame(...)` | **the same two calls** |
+| 5b. Player chooses a letter | types it and presses Enter | clicks one of 26 buttons |
+| 5c. Play the turn | `game.guess(text)` | **`game.guess(letter)` - the same call** |
+| 5d. Show the outcome | `print(MESSAGES[result])` | the same dict, into a label |
+| 6. Round over | print the result | reveal the word, grey out the buttons, save the score |
+| 7. Again? | `y`/`n` prompt | click "New game" |
+
+Only rows 1-2, 5b, 5d and 7 differ, and every one of those is about *showing* or *collecting*
+something. The middle of the pipeline is shared code.
 
 ## 5. Design decisions
 
@@ -226,7 +255,51 @@ from** is the caller's business. One extra argument, and `game.py` still imports
 This is also where the win-before-loss ordering earns its keep: a hint that reveals the last
 letter *and* spends the last life is a **win**.
 
-### 5.7 Smaller choices
+### 5.7 The window (A6)
+
+`gui.py` is a tkinter window, so it needs nothing installed. The player **clicks letters**
+instead of typing them: 26 buttons, each greyed out once used, which also removes the whole
+category of invalid input by construction.
+
+It was written **without changing one line of `hangman/game.py`**. The window calls exactly the
+same `game.guess(letter)` and `game.hint(random)` the console version calls, and reads the same
+`masked_word`, `lives` and `state`. Two interfaces on one set of rules is the clearest proof the
+separation is real, and it is why `main.py` was kept rather than replaced.
+
+Like `main.py`, `gui.py` holds **no game rules**. It does not check whether a letter is valid or
+already used; it clicks the letter in and renders whatever `GuessResult` comes back, using the
+same sentences from `messages.py`.
+
+### 5.8 Score and history (A4)
+
+The score is one line, and a loss is worth nothing:
+
+```python
+def compute_score(game):
+    if not game.won:
+        return 0
+    return game.lives * 10 + len(game.secret_word) * 5
+```
+
+Lives kept and word length both count. **The hint needs no separate penalty** — it already costs
+a life, so it already shows up in the score. That falls out of the design rather than being
+another rule to remember, and `test_the_hint_lowers_the_score_because_it_costs_a_life` checks it.
+
+Every finished round is appended to `data/scores.csv`, one row, seven columns:
+
+```
+played_at,topic,difficulty,word,result,lives_left,score
+2026-09-07 16:59:52,animal,easy,cat,win,6,75
+```
+
+The window shows the **best score for each of the three difficulties**, read back from that file,
+so it survives between runs. The **"Details" button** saves a copy of the whole history wherever
+the player chooses, through the normal save dialog.
+
+`scores.py` takes the file path as an argument everywhere, so the tests write to a temporary
+directory and never touch the real history.
+
+### 5.9 Smaller choices
 
 - **`state` checks WIN before LOSS**, so the last letter on the last life wins.
 - **Output is pure ASCII**, which sidesteps the Windows console codepage problem entirely - no
@@ -266,23 +339,24 @@ letter *and* spends the last life is a **win**.
 | F4 | Case-insensitive | Done - `.lower()` before the alphabet check |
 | F5 | Announce win/loss, reveal the word, offer a replay | Done - the word is shown either way |
 | 3.2 | Rules separated from the interface | Done - `game.py` imports only `enum`, `string` |
-| - | At least 5 unit tests | Done - 36 tests |
+| - | At least 5 unit tests | Done - 46 tests |
 | - | README | Done - this file |
 | A1 | Difficulty easy/medium/hard | Done - modes 1/2/3, changes word length (assumption 7) |
-| A2 | One hint per round, reveals a letter, costs a turn | Done - type `?` |
+| A2 | One hint per round, reveals a letter, costs a turn | Done - `?` in the console, a button in the window |
 | A3 | Words grouped by topic, chosen by the player | Done - Animal / Food / All topics |
-| A4, A5, A6 | Scoring, Vietnamese diacritics, GUI | Not done - see section 8 |
+| A4 | Score, saved to a file and kept between runs | Done - `data/scores.csv` |
+| A5 | Vietnamese words with diacritics | Not done - approach described in section 8 |
+| A6 | Graphical interface instead of the console | Done - `python gui.py` |
 
 ## 8. What I would do next
 
-Roughly in priority order. None of the first three requires touching `game.py`, which is the
-point of the layering:
+Roughly in priority order. None of these requires touching `game.py`, which is the point of
+the layering:
 
-- **ASCII gallows drawing.** Pure presentation, lives in `main.py`, picks one of 7 frames from
-  `len(game.wrong_letters)`.
-- **A4 - Scoring and a leaderboard.** A separate `score.py` with a pure
-  `compute_score(game) -> int`, saved as JSON.
-- **A6 - A web interface.** The core knows nothing about the console, so it is reusable as-is.
+- **A hangman drawing.** Pure presentation: 7 frames chosen by `len(game.wrong_letters)`, as
+  ASCII in `main.py` or a tkinter canvas in `gui.py`. No change to the rules.
+- **A per-player leaderboard.** `scores.csv` already records every round; grouping by a player
+  name would be a query over it, not a change to the game.
 - **A5 - Vietnamese words with diacritics.** The approach I would take: normalise with
   `unicodedata.normalize("NFC", ...)` so `ế` is a **single** code point rather than `e` plus a
   combining accent - otherwise both `len()` and letter matching go wrong. I would match

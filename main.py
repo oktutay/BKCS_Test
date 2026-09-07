@@ -11,22 +11,11 @@ The functions are written in the order they run, top to bottom:
 
 import random
 
-from hangman.game import GuessResult, HangmanGame
+from hangman.game import HangmanGame
 from hangman.words import DIFFICULTIES, MODES, WordDataError, random_word, topic_names
+from messages import MESSAGES
 
 HINT_COMMAND = "?"
-
-# One sentence per possible outcome. This dict is the whole reason main.py
-# needs no game rules of its own.
-MESSAGES = {
-    GuessResult.CORRECT: "Correct!",
-    GuessResult.WRONG: "Wrong, you lose one life.",
-    GuessResult.ALREADY_GUESSED: "You already tried that letter, pick another.",
-    GuessResult.INVALID: "Invalid input: type exactly one letter (a-z).",
-    GuessResult.GAME_OVER: "This round is already over.",
-    GuessResult.HINT: "Hint: one letter revealed, and it cost you a life.",
-    GuessResult.HINT_UNAVAILABLE: "You have already used your hint this round.",
-}
 
 
 def read_line(prompt):

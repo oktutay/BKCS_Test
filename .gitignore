@@ -15,3 +15,6 @@ Thumbs.db
 
 # Assignment brief (company document - not published by default)
 *.pdf
+
+# Score history is created at run time, not part of the source
+data/scores.csv
