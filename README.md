@@ -2,8 +2,9 @@
 
 Game đoán chữ chạy trên console, viết bằng Python thuần — **không cần cài thêm thư viện nào**.
 
-Người chơi đoán từng chữ cái của một từ bí mật được chọn ngẫu nhiên. Đoán đúng thì mọi vị trí
-chứa chữ đó lộ ra và **không mất lượt**; đoán sai thì mất 1 lượt. Tối đa **6 lần sai**.
+Người chơi chọn **chủ đề** và **độ khó**, rồi đoán từng chữ cái của một từ bí mật được chọn ngẫu
+nhiên. Đoán đúng thì mọi vị trí chứa chữ đó lộ ra và **không mất lượt**; đoán sai thì mất 1 lượt.
+Mặc định (độ khó Trung bình) là tối đa **6 lần sai**.
 
 ---
 
@@ -25,7 +26,7 @@ python -m unittest discover -s tests -t . -v
 > Cờ `-t .` là bắt buộc: nó đặt thư mục gốc dự án làm top-level, nếu không `import hangman`
 > bên trong test sẽ báo lỗi.
 
-Hiện có **20 test**, vượt yêu cầu tối thiểu 5. Kết quả: `Ran 20 tests — OK`.
+Hiện có **27 test**, vượt yêu cầu tối thiểu 5. Kết quả: `Ran 27 tests — OK`.
 
 ## 3. Cấu trúc dự án
 
@@ -33,13 +34,13 @@ Hiện có **20 test**, vượt yêu cầu tối thiểu 5. Kết quả: `Ran 20
 BKCS_Test/
 ├── main.py                 # GIAO DIỆN — file DUY NHẤT có print() / input()
 ├── data/
-│   └── words.json          # 80 từ, chia 2 chủ đề (animal / food)
+│   └── words.json          # 90 từ, chia 2 chủ đề (animal / food)
 ├── hangman/
 │   ├── game.py             # LOGIC THUẦN — không hề có print/input/file/random
-│   └── words.py            # đọc file từ vựng + chọn từ ngẫu nhiên
+│   └── words.py            # đọc file từ vựng, lọc theo chủ đề / độ khó, chọn ngẫu nhiên
 └── tests/
     ├── test_game.py        # 15 test cho luật chơi
-    └── test_words.py       #  5 test cho dữ liệu từ vựng
+    └── test_words.py       # 12 test cho dữ liệu, chủ đề và độ khó
 ```
 
 Chiều phụ thuộc — luôn đi một chiều, không có vòng lặp:
@@ -126,7 +127,38 @@ bao giờ thắng được** vì người chơi không thể gõ dấu cách. Ng
 raise `ValueError` nếu nhận từ bẩn — chặn hai lớp, và `test_every_word_builds_a_playable_game`
 kiểm tra tự động rằng **mọi** từ trong file đều thắng được.
 
-### 4.5 Vài chi tiết nhỏ nhưng có chủ đích
+### 4.5 Độ khó (A1) và chủ đề (A3) nằm ở tầng dữ liệu
+
+Cả hai được cài đặt **không sửa một dòng nào trong `game.py`** — có thể kiểm chứng bằng
+`git show --stat` của commit thêm hai tính năng này: `game.py` không có mặt trong danh sách file
+thay đổi. Đây là bằng chứng cụ thể nhất cho thấy việc tách lớp có giá trị thật.
+
+Lý do: chọn từ nào để chơi là **chính sách chọn từ**, không phải luật chơi. Nên bảng độ khó nằm
+trong `words.py`:
+
+| Mode | Độ khó | Độ dài từ | Số lượt sai | Số từ mỗi chủ đề |
+|---|---|---|---|---|
+| 1 | Dễ | 3–5 chữ cái | 6 | 24 |
+| 2 | Trung bình | 6–8 chữ cái | 6 | 13 |
+| 3 | Khó | ≥9 chữ cái | 6 | 8 |
+
+**Độ khó chỉ đổi độ dài từ, không đổi số lượt** — mọi chế độ đều đúng 6 lượt sai như luật gốc ở
+mục 2.4 của đề bài. Vì vậy `Difficulty` không hề có trường `lives`; giữ một trường luôn bằng 6 chỉ
+là thừa và dễ gây hiểu nhầm là nó thay đổi được. Có
+`test_difficulty_changes_word_length_only_not_lives` chốt điều này.
+
+Chủ đề thì `data/words.json` đã gom sẵn, chỉ cần thêm menu ở `main.py`.
+
+Độ khó **suy ra từ `len(word)` lúc chạy**, file dữ liệu không gắn nhãn độ khó. Thêm một từ mới vào
+`words.json` là nó tự vào đúng nhóm, không phải sửa gì thêm. Có
+`test_every_topic_and_difficulty_bucket_has_words` kiểm tra mọi tổ hợp (chủ đề × độ khó) đều còn
+từ, để `random_word()` không bao giờ rơi vào tình huống chọn từ một danh sách rỗng.
+
+Tên chủ đề hiển thị bằng tiếng Việt qua `TOPIC_LABELS` trong `main.py` (chuyện trình bày thì để ở
+tầng trình bày). Chủ đề nào chưa có nhãn vẫn chạy bình thường, chỉ hiện tên gốc — nên thêm chủ đề
+mới vẫn chỉ là sửa dữ liệu.
+
+### 4.6 Vài chi tiết nhỏ nhưng có chủ đích
 
 - **`guess()` nhận mọi kiểu dữ liệu.** `game.guess(None)` trả `INVALID` chứ không ném
   `AttributeError`. F3 nói "không được crash", nên lõi không nên sập vì một giá trị lạ.
@@ -149,33 +181,34 @@ kiểm tra tự động rằng **mọi** từ trong file đều thắng được
 5. **Gõ lại chữ đã đoán** (dù trước đó đúng hay sai) đều tính là "đã đoán rồi" và không trừ lượt.
 6. **Câu hỏi chơi lại** nhận `c`/`k` (có/không), cũng chấp nhận `y`/`n`. Trả lời sai thì hỏi lại
    chứ không thoát.
+7. **Số lượt sai luôn là 6 ở mọi độ khó.** Đề bài mục 2.4 quy định tối đa 6 lượt sai, còn A1 lại
+   gợi ý độ khó "ảnh hưởng tới số lượt được phép" — hai chỗ này mâu thuẫn nhau. Tôi chọn giữ
+   đúng luật gốc: **6 lượt cho mọi chế độ**, độ khó chỉ ảnh hưởng độ dài từ.
+8. **Chọn lại chủ đề và độ khó ở mỗi ván mới**, thay vì giữ nguyên lựa chọn cũ.
 
 ## 6. Đối chiếu yêu cầu
 
 | # | Yêu cầu | Trạng thái |
 |---|---|---|
-| F1 | Từ ngẫu nhiên từ danh sách ≥30 từ, ở file riêng | ✅ 80 từ trong `data/words.json` |
+| F1 | Từ ngẫu nhiên từ danh sách ≥30 từ, ở file riêng | ✅ 90 từ trong `data/words.json` |
 | F2 | Hiển thị trạng thái từ, chữ đã đoán, lượt còn lại | ✅ `render_status()` |
 | F3 | Input không hợp lệ: không trừ lượt, không crash | ✅ rỗng / >1 ký tự / không phải chữ cái / đã đoán rồi |
 | F4 | Không phân biệt hoa thường | ✅ `.lower()` trước khi kiểm tra |
 | F5 | Báo thắng/thua + hiện từ bí mật + hỏi chơi lại | ✅ hiện từ bí mật ở **cả hai** trường hợp |
 | 3.2 | Tách logic khỏi giao diện | ✅ `game.py` chỉ import `enum`, `string` |
-| — | ≥5 unit test | ✅ 20 test |
+| — | ≥5 unit test | ✅ 27 test |
 | — | README | ✅ file này |
-
-Yêu cầu nâng cao A1–A6: **chưa làm** trong vòng này, xem mục 7.
+| A1 | Độ khó Dễ/Trung bình/Khó | ✅ mode 1/2/3, ảnh hưởng độ dài từ (xem giả định 7) |
+| A3 | Phân nhóm từ vựng theo chủ đề, cho người chơi chọn | ✅ Động vật / Đồ ăn / Tất cả |
+| A2, A4, A5, A6 | Gợi ý, điểm số, tiếng Việt có dấu, giao diện đồ hoạ | ❌ chưa làm, xem mục 7 |
 
 ## 7. Nếu có thêm thời gian
 
 Ưu tiên theo thứ tự, và điều đáng nói là **hầu hết đều không cần sửa `game.py`** — đó chính là
 bằng chứng việc tách lớp có giá trị thật chứ không chỉ để cho đẹp:
 
-- **A1 — Độ khó.** Thêm bảng `{"easy": (3, 5, 8), "medium": (6, 8, 6), "hard": (9, 99, 4)}` vào
-  `words.py` (đây là chính sách *chọn từ*, không phải luật chơi), lọc theo `len(word)` rồi truyền
-  `HangmanGame(secret, lives=...)`. Lõi đã nhận `lives` làm tham số sẵn → **không sửa `game.py`**.
-- **A3 — Chủ đề.** `data/words.json` đã gom sẵn theo chủ đề, chỉ cần thêm menu chọn ở `main.py`.
-  Cũng **không sửa `game.py`**.
-- **Hình ASCII giá treo cổ.** Thuần trình bày, đặt ở `main.py`, index theo số lần đoán sai.
+- **Hình ASCII giá treo cổ.** Thuần trình bày, đặt ở `main.py`, chọn khung hình theo số lần đoán
+  sai (`len(game.wrong_letters)`, từ 0 đến 6). Không cần sửa `game.py`.
 - **A2 — Gợi ý.** Đây là mục duy nhất phải đụng vào lõi: thêm `hint(rng)` mở 1 chữ chưa lộ và trừ
   1 lượt. Cần truyền `rng` vào làm tham số để `game.py` vẫn test được tất định.
 - **A4 — Điểm số & bảng xếp hạng.** Một `score.py` riêng với hàm thuần
