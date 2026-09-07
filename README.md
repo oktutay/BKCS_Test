@@ -147,11 +147,17 @@ something. The middle of the pipeline is shared code.
 The assignment calls this its most important criterion, so everything else follows from it.
 
 `hangman/game.py` **imports only `enum` and `string`** - no `print`, no `input`, no `open`, no
-`random`, and nothing from this project. You can check that mechanically:
+`random`, and nothing from this project. That is the complete import list at the top of the file:
+
+```python
+import string
+from enum import Enum
+```
+
+And nothing sneaks in further down, which you can check in one command:
 
 ```bash
-python -c "import ast,pathlib; print(sorted(n.names[0].name if isinstance(n,ast.Import) else n.module for n in ast.walk(ast.parse(pathlib.Path('hangman/game.py').read_text(encoding='utf-8'))) if isinstance(n,(ast.Import,ast.ImportFrom))))"
-# ['enum', 'string']
+grep -nE "print\(|input\(|open\(" hangman/game.py     # prints nothing
 ```
 
 The payoff is concrete: **the rule tests mock nothing** - no fake `stdin`, no captured `stdout`,
@@ -384,5 +390,3 @@ I used **Claude (Claude Code)** while working on this:
 The rules, the data model (`point`/`remain`/`flag`, the letter whitelist, the food/animal topic
 split) were mine. I have read, understood and verified every line in this repository and can
 explain any of it.
-#   B K C S _ T e s t  
- 
