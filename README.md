@@ -384,3 +384,5 @@ I used **Claude (Claude Code)** while working on this:
 The rules, the data model (`point`/`remain`/`flag`, the letter whitelist, the food/animal topic
 split) were mine. I have read, understood and verified every line in this repository and can
 explain any of it.
+#   B K C S _ T e s t  
+ 
