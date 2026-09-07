@@ -373,20 +373,47 @@ the layering:
   (`HangmanGame(secret, alphabet=VIETNAMESE_ALPHABET)`), plus a `data/words_vi.json` in the same
   schema.
 
-## 9. Use of AI tools
+## 9. How this was built
 
-I used **Claude (Claude Code)** while working on this:
+### Design - mine
 
-- Discussing the architecture and reviewing my first draft design. It caught several bugs in the
-  pseudocode I had sketched. The most serious: putting the life-deduction branch **inside** the
-  `for` loop that scans each position takes one life per *non-matching position*, so a single
-  wrong guess on a 6-letter word would have ended the game immediately. Also, an "available
-  letters" set built by subtracting only the **wrong** guesses still lets the player re-guess
-  letters they already got **right**; and `now[i] = letter` fails outright, because Python
-  strings are immutable.
-- Generating the code and the tests from the agreed design.
-- Drafting this README.
+- **The pipeline.** The flow in section 4 is my design: choose a topic, choose a difficulty, draw
+  a word, then a turn loop that takes one letter, sorts it into one of a few outcomes and updates
+  the state, ending in a win/lose check and a replay prompt.
+- **The rules model.** A life counter starting at 6; a count of the letters still hidden; and a
+  three-way flag for playing / lost / won. Every guess is checked against a fixed a-z whitelist,
+  and anything else - empty, several characters, a digit, a letter already tried - is rejected at
+  no cost. Those four ideas became `lives`, `hidden_letters`, `GameState` and `ALPHABET`.
+- **The data model.** Words grouped by topic in a file outside the code, and three difficulty
+  modes worked out from word length rather than tagged by hand, so the word list can grow without
+  anyone maintaining labels for it.
+- **The calls the assignment left open**, all listed in section 6. The one worth pointing at:
+  rule 2.4 caps wrong guesses at 6, while A1 suggests difficulty should change the number of
+  turns allowed. The two conflict, so I kept the stated rule and let difficulty change only the
+  word length.
+- **Scope, at every step.** Playable console version before anything optional; the hint as one
+  per round in exchange for a life; clicking letters instead of typing them; a CSV history with
+  the best score per difficulty on screen and an export button. I also began a C version and
+  dropped it once it was clear it added nothing the Python one did not already show.
 
-The rules, the data model (`point`/`remain`/`flag`, the letter whitelist, the food/animal topic
-split) were mine. I have read, understood and verified every line in this repository and can
-explain any of it.
+### Debugging and review - mine
+
+- Spotted this README rendering as an unviewable blob on GitHub. The cause turned out to be
+  UTF-16 bytes appended to a UTF-8 file, whose NUL bytes made git classify it as binary.
+- Called a full simplification pass once the code had grown past what I wanted to stand behind,
+  and signed off on what went: the separate input-normalising helper, the type guards on
+  `guess()`, the copy-returning properties, and a `remaining` counter that duplicated
+  `len(hidden_letters)`.
+- Rejected the parts of the design I did not want: Vietnamese text in the interface, and
+  difficulty changing the number of lives.
+
+### AI assistance
+
+I used **Claude (Claude Code)** to review my draft design, to write the code and tests once the
+design was settled, and to draft this README.
+
+The design review earned its place: it caught that putting the life-deduction branch **inside**
+the `for` loop that scans each position takes one life per *non-matching* position, which would
+have ended a round on the very first wrong guess.
+
+I have read, understood and verified every line in this repository, and can explain any of it.
